@@ -8,47 +8,62 @@ import scrapy
 import json
 import re
 from bs4 import BeautifulSoup as bs
+from scrapy_selenium import SeleniumRequest
 
 class TargetspiderSpider(scrapy.Spider):
     name = 'targetspider'
-    allowed_domains = ['https://www.target.com/']
-    # start_urls = ['https://www.target.com/p/toddler-girls-shanel-fisherman-sandals-cat-jack/-/A-81204099?preselect=80859208']
-    
+
     def __init__(self, url=None, **kwargs):
         super( TargetspiderSpider, self).__init__(url=url, **kwargs)
-        self.start_urls = [f'{self.url}']
+        self.start_urls = [f'{self.url}']       # Accepting URL as argument
         self.declare_xpath()
     
     def declare_xpath(self):
+        """ Defining all xpath required for extraction """
         self.titleXpath = '//*[@id="viewport"]/div[4]/div/div[1]/div[2]/h1/span/text()'
         self.jsonXpath = '//script[@type="application/ld+json"]//text()'
         self.priceXpath = '//*[@id="viewport"]/div[4]/div/div[2]/div[2]/div[1]/div[1]/div[1]/div/text()'
         self.specsXpath = '//*[@id="specAndDescript"]/div[1]/div[1]'
 
-    def parse(self, response):
-        self.logger.info('A response from %s just arrived!', response.url)
-
-        data = {}
-        data['url'] = response.request.url
-        data['response_url'] = response.url
-        # data['html'] = response.body_as_unicode()
-        data['title'] = response.xpath( self.titleXpath ).extract_first()
+    def start_requests(self):
+        """Making requests using the scrapy_selenium"""
+        try:
+            yield SeleniumRequest(
+                url = self.url,
+                wait_time = 3,
+                callback = self.parse_product_details, 
+                dont_filter = True    
+            )
+            self.driver.close()
+        except Exception as e :
+            print("Error at start_requests(self) = ", e)
+            pass
         
-        json_data = json.loads( response.xpath( self.jsonXpath ).extract_first())
-
-        if json_data and isinstance(json_data, dict):
-            data['tcin'] = str( json_data['@graph'][0]['sku'] ).strip()
-            data['upc'] =  json_data['@graph'][0]['gtin13']
-            data['price'] = response.xpath( self.priceXpath ).extract_first()
-            data['currency'] =  json_data['@graph'][0]['offers']['priceCurrency']
-            data['description'] = str( json_data['@graph'][0]['description'] ).strip()
-            
-            specification_div = response.xpath( self.specsXpath ).extract_first()
-
-            soup = bs( specification_div )
-            
+    def parse_product_details(self,response):
+        """ Extraction of Product Details """
+        try:
+            #Extract the product price
+            og_price = response.xpath('//div[@data-test="product-price"]//text()').extract_first()
+            price_result = re.search(r'([0-9\.]+)', og_price )  #extract only digits from a proce string
+            price = price_result.group(0) if price_result else ""
+            #Extract title of a product
+            title = response.xpath(self.titleXpath).extract_first()
+            #Extract the 'application/ld+json' to get the currency mainly
+            json_data = json.loads( response.xpath( self.jsonXpath ).extract_first())
+            data = {}
+            if json_data and isinstance(json_data, dict):
+                data['tcin'] = str( json_data['@graph'][0]['sku'] ).strip()
+                data['upc'] =  json_data['@graph'][0]['gtin13']
+                data['price'] = response.xpath( self.priceXpath ).extract_first()
+                data['currency'] =  json_data['@graph'][0]['offers']['priceCurrency']
+                data['description'] = str( json_data['@graph'][0]['description'] ).strip()
+            #Extract the product specifications
+            specs_dict = {}
+            specification_div = response.selector.xpath( self.specsXpath ).extract_first()
+            #Convert text to BeautifulSoup
+            soup = bs( specification_div , "lxml" )            
             all_div = soup.find_all('div')
-            data_dict = {}
+            #Applying ignore case : as these keys isnt mentioned in test
             ignore_keys = ['TCIN','UPC','Item Number (DPCI)','Origin','Size']
             for div in all_div:
                 b = div.find_all('b')
@@ -57,12 +72,20 @@ class TargetspiderSpider(scrapy.Spider):
                     value = div.text
                     value = re.sub(key, ' ', value)
                     key = re.sub(r'\:', ' ', key)
-                    if key not in data_dict.keys():
-                        if key not in ignore_keys:
-                            data_dict[key.strip()] = value.strip()
-
-            #print(data_dict)
-            data['specs'] = data_dict
-        else:
-            print("Xpath for json data isnt worked ... \n")
-        yield data
+                    if key not in specs_dict.keys():
+                        if key.strip() not in ignore_keys:
+                            specs_dict[key.strip()] = value.strip()
+            yield {
+                "url" : response.request.url,
+                "tcin" : data['tcin'],
+                "upc" : data["upc"],
+                "og_price" : og_price,
+                "price" : price,
+                "currency" : data['currency'],
+                "title" : title,
+                "description" : data['description'],
+                "specs" : specs_dict
+            }
+        except Exception as e:
+            print("Error at parse_product_details(self,response) = ", e)
+            pass
