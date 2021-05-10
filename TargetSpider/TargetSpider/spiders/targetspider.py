@@ -1,3 +1,9 @@
+#!/usr/bin/env python
+#-*- coding: utf-8 -*-
+"""
+Author: Govardhan Veer
+date: 09 May 2021
+"""
 import scrapy
 import json
 import re
