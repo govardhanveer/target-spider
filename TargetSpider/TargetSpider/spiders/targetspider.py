@@ -55,16 +55,8 @@ class TargetspiderSpider(scrapy.Spider):
                         if key not in ignore_keys:
                             data_dict[key.strip()] = value.strip()
 
-            print(data_dict)
+            #print(data_dict)
             data['specs'] = data_dict
         else:
             print("Xpath for json data isnt worked ... \n")
-        # response.css('div::attr(id="specAndDescript")').getall()
         yield data
-        pass
-
-    def parse_specs(self,specs):
-        print("\n\nspecifications tab : \n", specs)
-        # divs =  specs.xpath("//div/div").extract()
-        # print("\n\n\nidivs --------\n", divs)
-        pass
